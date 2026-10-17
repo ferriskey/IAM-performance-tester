@@ -90,6 +90,16 @@ k6 run k6/scenarios/mixed_workload.js
 k6 run --env VUS=100 --env DURATION=5m k6/scenarios/mixed_workload.js
 ```
 
+Or run the whole suite in one go. Results land in `results/<label>-<timestamp>/` with a summary JSON and a log per scenario:
+
+```bash
+scripts/run_all.sh                                   # all five scenarios, VUS/DURATION from .env.test
+VUS=100 DURATION=10m scripts/run_all.sh              # heavier
+SCENARIOS="jwks userinfo" scripts/run_all.sh         # a subset
+K6_FLAGS="--no-thresholds" scripts/run_all.sh        # exercise endpoints without failing on SLOs
+scripts/run_all.sh .env.test.keycloak                # another seeded config
+```
+
 ### 6. Cleanup (Optional)
 
 ```bash
@@ -117,6 +127,7 @@ IAM-performance-tester/
 ├── scripts/
 │   ├── seed_test_data.py        # Seeder (uses IAM_PROVIDER)
 │   ├── cleanup_test_data.py     # Deletes the test realm (uses IAM_PROVIDER)
+│   ├── run_all.sh               # Runs every scenario, keeps results per run
 │   ├── wait_for_iam.sh          # Polls OIDC discovery until the server is up
 │   ├── container_memory_kb.sh   # Memory of a compose service (nightly CI)
 │   └── lib/                     # Provider implementations

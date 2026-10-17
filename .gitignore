@@ -1,6 +1,7 @@
 # Results directory (generated during test runs)
 results/*.json
 results/*.csv
+results/*/
 !results/.gitkeep
 
 # Python / uv

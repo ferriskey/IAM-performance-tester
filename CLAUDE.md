@@ -32,6 +32,7 @@ IAM-performance-tester/
 ├── scripts/                 # Python setup/teardown + shell helpers
 │   ├── seed_test_data.py           # Seeding (uses IAM_PROVIDER)
 │   ├── cleanup_test_data.py        # Deletes the test realm (uses IAM_PROVIDER)
+│   ├── run_all.sh                  # Every scenario in sequence, results per run
 │   ├── wait_for_iam.sh             # Polls OIDC discovery until the server is up
 │   ├── container_memory_kb.sh      # Memory of a compose service, for the nightly
 │   └── lib/                        # Shared Python library
@@ -93,6 +94,9 @@ k6 run --env VUS=100 --env DURATION=5m k6/scenarios/mixed_workload.js
 
 # Exercise endpoints without failing on SLOs
 k6 run --no-thresholds k6/scenarios/mixed_workload.js
+
+# Whole suite, results in results/<label>-<timestamp>/ (exit code = failed scenarios)
+scripts/run_all.sh [ENV_FILE]        # VUS, DURATION, SCENARIOS, K6_FLAGS override
 ```
 
 ### Cleanup
