@@ -50,6 +50,7 @@ export function setup() {
     grant_type: 'client_credentials',
     client_id: config.clientId,
     client_secret: config.clientSecret,
+    scope: 'openid',
   }, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
@@ -71,6 +72,7 @@ export default function (data) {
     grant_type: 'client_credentials',
     client_id: config.clientId,
     client_secret: config.clientSecret,
+    scope: 'openid',
   };
 
   const params = {

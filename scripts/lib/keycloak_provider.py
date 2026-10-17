@@ -27,13 +27,14 @@ class KeycloakProvider(IAMProvider):
 
         url = f"{self.config.base_url}/realms/{self.config.admin_realm}/protocol/openid-connect/token"
 
-        # Keycloak uses admin-cli client for admin operations
         data = {
             "grant_type": "password",
-            "client_id": self.config.keycloak_auth_client,
+            "client_id": self.config.admin_client_id,
             "username": self.config.admin_username,
             "password": self.config.admin_password,
         }
+        if self.config.admin_client_secret:
+            data["client_secret"] = self.config.admin_client_secret
 
         try:
             response = requests.post(url, data=data, timeout=self.config.request_timeout)
@@ -86,6 +87,30 @@ class KeycloakProvider(IAMProvider):
             print_error(f"Failed to create realm: {e}")
             return False
 
+    def delete_realm(self, token: str, realm_name: str) -> bool:
+        """Delete a realm and everything in it."""
+        print_warning(f"Deleting realm: {realm_name}...")
+
+        url = f"{self.config.base_url}/admin/realms/{realm_name}"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            response = requests.delete(url, headers=headers, timeout=self.config.request_timeout)
+
+            if response.status_code in (200, 204):
+                print_success(f"Realm '{realm_name}' deleted successfully")
+                return True
+            elif response.status_code == 404:
+                print_warning(f"Realm '{realm_name}' not found (already deleted?)")
+                return True
+            else:
+                print_error(f"Failed to delete realm. HTTP {response.status_code}: {response.text}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            print_error(f"Failed to delete realm: {e}")
+            return False
+
     def create_client(self, token: str, realm: str, client_data: dict) -> str | None:
         """Create a new client in Keycloak. Returns client UUID if successful."""
         client_id = client_data.get("client_id", "unknown")
@@ -109,6 +134,7 @@ class KeycloakProvider(IAMProvider):
             "serviceAccountsEnabled": client_data.get("service_account_enabled", False),
             "directAccessGrantsEnabled": client_data.get("direct_access_grants_enabled", True),
             "standardFlowEnabled": True,
+            "fullScopeAllowed": False,
         }
 
         try:
@@ -215,7 +241,7 @@ class KeycloakProvider(IAMProvider):
             secret = self.generate_client_secret(token, realm, client_uuid)
 
         if secret:
-            print_success(f"Client secret retrieved successfully")
+            print_success("Client secret retrieved successfully")
         else:
             print_error("Failed to retrieve client secret")
 

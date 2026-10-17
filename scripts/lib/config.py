@@ -31,12 +31,9 @@ class Config:
     admin_password: str
     admin_realm: str
 
-    # Admin client credentials (for FerrisKey - requires existing client in admin realm)
-    admin_client_id: str | None
+    # Client used to obtain the admin token (public admin-cli on both providers)
+    admin_client_id: str
     admin_client_secret: str | None
-
-    # Keycloak-specific
-    keycloak_auth_client: str
 
     # Performance test realm
     perf_realm: str
@@ -79,9 +76,7 @@ def load_config() -> Config:
     client_secret_env = os.getenv("CLIENT_SECRET", "").strip()
     client_secret = client_secret_env if client_secret_env else None
 
-    # Admin client credentials (for FerrisKey authentication)
-    admin_client_id_env = os.getenv("ADMIN_CLIENT_ID", "").strip()
-    admin_client_id = admin_client_id_env if admin_client_id_env else None
+    admin_client_id = os.getenv("ADMIN_CLIENT_ID", "").strip() or "admin-cli"
 
     admin_client_secret_env = os.getenv("ADMIN_CLIENT_SECRET", "").strip()
     admin_client_secret = admin_client_secret_env if admin_client_secret_env else None
@@ -96,11 +91,8 @@ def load_config() -> Config:
         admin_username=os.getenv("ADMIN_USERNAME", "admin"),
         admin_password=os.getenv("ADMIN_PASSWORD", "admin"),
         admin_realm=os.getenv("ADMIN_REALM", default_admin_realm),
-        # Admin client credentials (for FerrisKey)
         admin_client_id=admin_client_id,
         admin_client_secret=admin_client_secret,
-        # Keycloak-specific
-        keycloak_auth_client=os.getenv("KEYCLOAK_AUTH_CLIENT", "admin-cli"),
         # Performance test realm
         perf_realm=os.getenv("PERF_REALM", default_perf_realm),
         # Client configuration
@@ -108,7 +100,7 @@ def load_config() -> Config:
         client_secret=client_secret,
         # User configuration
         user_count=int(os.getenv("USER_COUNT", "50")),
-        user_password=os.getenv("USER_PASSWORD", "perf-password"),
+        user_password=os.getenv("USER_PASSWORD", "Perf-User-Pass-2026!"),
         user_prefix=os.getenv("USER_PREFIX", "perf-user-"),
         user_firstname=os.getenv("USER_FIRSTNAME", "Perf"),
         user_lastname_prefix=os.getenv("USER_LASTNAME_PREFIX", "User"),
