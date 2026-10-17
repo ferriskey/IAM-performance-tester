@@ -106,6 +106,7 @@ function doClientCredentials() {
     grant_type: 'client_credentials',
     client_id: config.clientId,
     client_secret: config.clientSecret,
+    scope: 'openid',
   }, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     tags: { endpoint: 'token', grant_type: 'client_credentials', workload: 'mixed' },
@@ -153,6 +154,7 @@ function doPasswordGrant() {
     client_secret: config.clientSecret,
     username: user.username,
     password: user.password,
+    scope: 'openid',
   }, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     tags: { endpoint: 'token', grant_type: 'password', workload: 'mixed' },
@@ -261,6 +263,7 @@ export function setup() {
     grant_type: 'client_credentials',
     client_id: config.clientId,
     client_secret: config.clientSecret,
+    scope: 'openid',
   }, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });

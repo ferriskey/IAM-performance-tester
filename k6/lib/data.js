@@ -1,20 +1,26 @@
 // k6/lib/data.js
-// Test data helpers for FerrisKey performance tests
+// Test data helpers shared by the scenarios
 
 import { SharedArray } from 'k6/data';
 
-// Load users from CSV file - SharedArray ensures data is loaded once and shared across VUs
-// Note: This file is created by the seed script
+// The user pool mirrors what seed_test_data.py created. The seeder writes
+// USER_PREFIX, USER_COUNT and TEST_PASSWORD into .env.test; defaults match
+// the seeder defaults.
+const userPrefix = __ENV.USER_PREFIX || 'perf-user-';
+const userCount = Number(__ENV.USER_COUNT) || 50;
+const userPassword = __ENV.TEST_PASSWORD || 'Perf-User-Pass-2026!';
+const emailPrefix = __ENV.USER_EMAIL_PREFIX || 'perf';
+const emailDomain = __ENV.USER_EMAIL_DOMAIN || 'test.local';
+
+// SharedArray ensures data is loaded once and shared across VUs
 export const users = new SharedArray('users', function () {
-  // During actual test runs, this will load from the generated file
-  // For now, return a default set that matches our seed data pattern
   const userList = [];
-  for (let i = 1; i <= 200; i++) {
+  for (let i = 1; i <= userCount; i++) {
     const paddedNum = String(i).padStart(3, '0');
     userList.push({
-      username: `perf-user-${paddedNum}`,
-      password: 'perf-password',
-      email: `perf${paddedNum}@test.local`,
+      username: `${userPrefix}${paddedNum}`,
+      password: userPassword,
+      email: `${emailPrefix}${paddedNum}@${emailDomain}`,
     });
   }
   return userList;

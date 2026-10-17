@@ -1,4 +1,4 @@
-# FerrisKey Performance Tester
+# IAM Performance Tester
 
 Performance testing suite for [FerrisKey](https://github.com/ferriskey/ferriskey) and [Keycloak](https://www.keycloak.org/) using [k6](https://k6.io/).
 
@@ -9,29 +9,41 @@ Performance testing suite for [FerrisKey](https://github.com/ferriskey/ferriskey
 - **Userinfo Endpoint** - OpenID Connect userinfo
 - **Mixed Workload** - Realistic traffic patterns
 - **Multi-Provider** - Works with FerrisKey and Keycloak
+- **Batteries included** - `docker compose` profiles boot either backend from its published image
 
 ## Prerequisites
 
-- [k6](https://k6.io/docs/getting-started/installation/)
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Python 3.10+
+- [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) 1.x or 2.x
+- [uv](https://docs.astral.sh/uv/) (Python package manager, downloads Python 3.12+ on demand)
+- Docker with Compose v2 (only if you want the bundled IAM backends)
 
 ## Quick Start
 
 ### 1. Setup
 
 ```bash
-git clone https://github.com/ferriskey/ferriskey-perf-tester.git
-cd ferriskey-perf-tester
+git clone https://github.com/ferriskey/IAM-performance-tester.git
+cd IAM-performance-tester
 
-# Install dependencies
 uv sync
-
-# Create minimal config
 cp .env.example .env
 ```
 
-### 2. Configure `.env`
+### 2. Start an IAM backend
+
+Bring your own server, or boot one from the published images:
+
+```bash
+# Keycloak 26.8.1 on http://localhost:8080 (admin/admin)
+docker compose --profile keycloak up -d --wait
+
+# FerrisKey latest on http://localhost:3333 (admin/admin)
+docker compose --profile ferriskey up -d --wait
+```
+
+Pick `KEYCLOAK_PORT`, `FERRISKEY_PORT`, `KEYCLOAK_VERSION` or `FERRISKEY_VERSION` in `.env` to change ports or image tags.
+
+### 3. Configure `.env`
 
 ```bash
 # IAM provider: "ferriskey" or "keycloak"
@@ -45,22 +57,23 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin
 ```
 
-That's it! The seeder will auto-generate `CLIENT_ID` and retrieve `CLIENT_SECRET` from the server.
+That's it. The seeder authenticates through the public `admin-cli` client both providers ship, auto-generates `CLIENT_ID` and retrieves `CLIENT_SECRET` from the server.
 
-### 3. Seed Test Data
+### 4. Seed Test Data
 
 ```bash
+scripts/wait_for_iam.sh            # optional, blocks until the server answers
 uv run python scripts/seed_test_data.py
 ```
 
 This will:
 1. Create a performance test realm
-2. Create a test client (auto-generated ID)
+2. Create a confidential test client (auto-generated ID)
 3. Retrieve the client secret from the server
-4. Create test users
+4. Create test users (`USER_COUNT`, default 50)
 5. Generate `.env.test` with all k6 configuration
 
-### 4. Run Performance Tests
+### 5. Run Performance Tests
 
 ```bash
 # Use the generated .env.test
@@ -77,17 +90,19 @@ k6 run k6/scenarios/mixed_workload.js
 k6 run --env VUS=100 --env DURATION=5m k6/scenarios/mixed_workload.js
 ```
 
-### 5. Cleanup (Optional)
+### 6. Cleanup (Optional)
 
 ```bash
-uv run python scripts/cleanup_test_data.py          # FerrisKey
-uv run python scripts/cleanup_test_data_keycloak.py # Keycloak
+uv run python scripts/cleanup_test_data.py          # deletes the test realm, asks first
+uv run python scripts/cleanup_test_data.py --yes    # no prompt (CI)
+
+docker compose --profile keycloak --profile ferriskey down -v
 ```
 
 ## Project Structure
 
 ```
-ferriskey-perf-tester/
+IAM-performance-tester/
 ├── k6/
 │   ├── scenarios/           # Test scenarios
 │   │   ├── token_client_credentials.js
@@ -100,13 +115,15 @@ ferriskey-perf-tester/
 │       ├── auth.js
 │       └── data.js
 ├── scripts/
-│   ├── seed_test_data.py    # Unified seeder (uses IAM_PROVIDER)
-│   ├── cleanup_test_data.py
-│   ├── cleanup_test_data_keycloak.py
-│   └── lib/                 # Provider implementations
+│   ├── seed_test_data.py        # Seeder (uses IAM_PROVIDER)
+│   ├── cleanup_test_data.py     # Deletes the test realm (uses IAM_PROVIDER)
+│   ├── wait_for_iam.sh          # Polls OIDC discovery until the server is up
+│   ├── container_memory_kb.sh   # Memory of a compose service (nightly CI)
+│   └── lib/                     # Provider implementations
 │       ├── base_provider.py
 │       ├── ferriskey_provider.py
 │       └── keycloak_provider.py
+├── docker-compose.yml       # keycloak / ferriskey profiles
 ├── .env.example             # Minimal configuration template
 ├── .env.test                # Generated k6 configuration (after seeding)
 └── README.md
@@ -122,9 +139,11 @@ ferriskey-perf-tester/
 | `BASE_URL` | Server URL | `localhost:3333` (FK) / `localhost:8080` (KC) |
 | `ADMIN_USERNAME` | Admin username | `admin` |
 | `ADMIN_PASSWORD` | Admin password | `admin` |
+| `ADMIN_REALM` | Realm holding the admin user | `master` |
+| `ADMIN_CLIENT_ID` | Client used for the admin token | `admin-cli` |
 | `PERF_REALM` | Test realm name | `perf-realm` (FK) / `perf` (KC) |
 | `USER_COUNT` | Number of test users | `50` |
-| `USER_PASSWORD` | Test user password | `perf-password` |
+| `USER_PASSWORD` | Test user password | `Perf-User-Pass-2026!` |
 
 ### Generated k6 Configuration (`.env.test`)
 
@@ -135,8 +154,10 @@ BASE_URL=http://localhost:8080
 REALM=perf
 CLIENT_ID=perf-client-abc123    # Auto-generated
 CLIENT_SECRET=xK9mLp2n...       # Retrieved from server
+USER_PREFIX=perf-user-
+USER_COUNT=50                   # k6 draws password-grant users from this pool
 TEST_USERNAME=perf-user-001
-TEST_PASSWORD=perf-password
+TEST_PASSWORD=Perf-User-Pass-2026!
 VUS=50
 DURATION=5m
 ```
@@ -151,30 +172,22 @@ DURATION=5m
 | `userinfo.js` | OpenID Connect userinfo | < 50ms |
 | `mixed_workload.js` | Weighted mix (40% CC, 20% PW, 30% UI, 10% JWKS) | varies |
 
-## CI/CD Integration
+Thresholds live in `k6/lib/config.js`. k6 exits non-zero when one fails; pass `--no-thresholds` to only exercise the endpoints.
 
-```yaml
-- name: Seed test data
-  run: uv run python scripts/seed_test_data.py
-  env:
-    IAM_PROVIDER: keycloak
-    BASE_URL: ${{ secrets.KEYCLOAK_URL }}
-    ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
-    ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+## CI
 
-- name: Run performance tests
-  run: |
-    set -a && source .env.test && set +a
-    k6 run --out json=results.json k6/scenarios/mixed_workload.js
-```
+- **Performance Smoke Test** (`perf-smoke.yml`): on every pull request, for both providers. Boots the backend with `docker compose`, seeds 20 users, runs 30s token and JWKS tests plus a 1m mixed workload.
+- **Performance Nightly** (`perf-nightly.yml`): 2 AM UTC, for both providers. 5m load tests per scenario, 10m mixed soak, memory growth of the IAM container recorded every 10s and flagged above 50%.
+
+Both can be triggered by hand with custom image tags (and durations for the nightly).
 
 ## Troubleshooting
 
 ### "Failed to get admin token"
 
-1. Check server is running at `BASE_URL`
+1. Check the server is running at `BASE_URL` (`scripts/wait_for_iam.sh` tells you when it is)
 2. Verify admin credentials
-3. For Keycloak, ensure `ADMIN_REALM=master`
+3. Ensure `ADMIN_REALM=master` unless your admin lives elsewhere
 
 ### "Connection refused"
 
@@ -186,6 +199,10 @@ Make sure to source `.env.test` before running k6:
 ```bash
 set -a && source .env.test && set +a && k6 run ...
 ```
+
+### Password grant fails for most users
+
+k6 draws users from `USER_PREFIX` 001 to `USER_COUNT`. Both come from `.env.test`; reseed after changing `USER_COUNT`.
 
 ## License
 

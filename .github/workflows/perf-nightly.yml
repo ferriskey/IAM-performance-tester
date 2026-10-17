@@ -1,291 +1,223 @@
-# .github/workflows/perf-nightly.yml
-# Nightly comprehensive performance test
-# Runs longer tests including load, stress, and soak tests with memory leak detection
+# Nightly performance run.
+# Longer load tests per scenario plus a mixed-workload soak, with memory
+# growth tracking of the IAM container to spot leaks.
 
 name: Performance Nightly
 
 on:
   schedule:
-    # Run at 2 AM UTC every day
+    # 2 AM UTC every day
     - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
-      ferriskey_ref:
-        description: 'FerrisKey branch/tag/sha to test'
+      ferriskey_version:
+        description: 'FerrisKey image tag (ghcr.io/ferriskey/ferriskey-api)'
         required: false
-        default: 'main'
+        default: 'latest'
+      keycloak_version:
+        description: 'Keycloak image tag (quay.io/keycloak/keycloak)'
+        required: false
+        default: '26.8.1'
       test_duration:
-        description: 'Test duration (e.g., 5m, 30m, 1h)'
+        description: 'Duration of each load test (e.g. 5m, 30m, 1h)'
+        required: false
+        default: '5m'
+      soak_duration:
+        description: 'Duration of the mixed-workload soak test'
         required: false
         default: '10m'
 
-env:
-  FERRISKEY_REPO: ferriskey/ferriskey
-  BASE_URL: http://localhost:3333
-  PERF_REALM: perf
-  ADMIN_USERNAME: admin
-  ADMIN_PASSWORD: admin
-
 jobs:
   nightly-performance:
-    name: Nightly Performance Test
+    name: Nightly (${{ matrix.provider }})
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: ferriskey
-          POSTGRES_PASSWORD: ferriskey
-          POSTGRES_DB: ferriskey
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: ferriskey
+            service: ferriskey-api
+            base_url: http://localhost:3333
+          - provider: keycloak
+            service: keycloak
+            base_url: http://localhost:8080
+
+    env:
+      IAM_PROVIDER: ${{ matrix.provider }}
+      BASE_URL: ${{ matrix.base_url }}
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin
+      COMPOSE_PROFILES: ${{ matrix.provider }}
+      FERRISKEY_VERSION: ${{ github.event.inputs.ferriskey_version || 'latest' }}
+      KEYCLOAK_VERSION: ${{ github.event.inputs.keycloak_version || '26.8.1' }}
+      TEST_DURATION: ${{ github.event.inputs.test_duration || '5m' }}
+      SOAK_DURATION: ${{ github.event.inputs.soak_duration || '10m' }}
 
     steps:
-      - name: Checkout perf-tester
-        uses: actions/checkout@v4
-
-      - name: Checkout FerrisKey
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.FERRISKEY_REPO }}
-          ref: ${{ github.event.inputs.ferriskey_ref || 'main' }}
-          path: ferriskey
-
-      - name: Setup Rust
-        uses: dtolnay/rust-action@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ferriskey
-
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres
-
-      - name: Run database migrations
-        run: |
-          cd ferriskey/core
-          sqlx migrate run
-        env:
-          DATABASE_URL: postgres://ferriskey:ferriskey@localhost:5432/ferriskey
-
-      - name: Build FerrisKey (release)
-        run: |
-          cd ferriskey/api
-          cargo build --release
-
-      - name: Start FerrisKey with memory tracking
-        run: |
-          cd ferriskey/api
-
-          # Start FerrisKey
-          ./target/release/ferriskey-api &
-          FERRISKEY_PID=$!
-          echo $FERRISKEY_PID > /tmp/ferriskey.pid
-
-          # Wait for server to be ready
-          echo "Waiting for FerrisKey to start..."
-          for i in {1..30}; do
-            if curl -s http://localhost:3333/health > /dev/null 2>&1; then
-              echo "FerrisKey is ready! PID: $FERRISKEY_PID"
-              break
-            fi
-            sleep 1
-          done
-
-          # Start memory monitoring in background
-          mkdir -p results
-          (
-            while true; do
-              if [ -f /tmp/ferriskey.pid ]; then
-                pid=$(cat /tmp/ferriskey.pid)
-                if ps -p $pid > /dev/null 2>&1; then
-                  # Get RSS in KB
-                  rss=$(ps -o rss= -p $pid 2>/dev/null | tr -d ' ')
-                  timestamp=$(date +%s)
-                  echo "$timestamp,$rss" >> results/memory_samples.csv
-                fi
-              fi
-              sleep 10
-            done
-          ) &
-          echo $! > /tmp/memmon.pid
-        env:
-          DATABASE_URL: postgres://ferriskey:ferriskey@localhost:5432/ferriskey
-          PORT: 3333
-          ADMIN_USERNAME: admin
-          ADMIN_PASSWORD: admin
-          ADMIN_EMAIL: admin@ferriskey.rs
-          LOG_LEVEL: warn
-
-      - name: Install k6
-        run: |
-          sudo gpg -k
-          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          sudo apt-get update
-          sudo apt-get install -y k6
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Start ${{ matrix.provider }}
+        run: docker compose up -d --wait
+
+      - name: Wait for the server
+        run: scripts/wait_for_iam.sh
 
       - name: Seed test data
         run: uv run python scripts/seed_test_data.py
         env:
           USER_COUNT: 200
 
-      - name: Record baseline memory
+      - name: Record baseline memory and start sampling
         run: |
-          pid=$(cat /tmp/ferriskey.pid)
-          baseline_rss=$(ps -o rss= -p $pid | tr -d ' ')
-          echo "BASELINE_RSS=$baseline_rss" >> $GITHUB_ENV
-          echo "Baseline memory: ${baseline_rss} KB"
+          baseline_kb=$(scripts/container_memory_kb.sh ${{ matrix.service }})
+          echo "BASELINE_KB=$baseline_kb" >> "$GITHUB_ENV"
+          echo "Baseline memory: ${baseline_kb} KiB"
 
-      - name: Run load test - Token endpoint
+          echo "timestamp,rss_kb" > results/memory_samples.csv
+          (
+            while true; do
+              echo "$(date +%s),$(scripts/container_memory_kb.sh ${{ matrix.service }} 2>/dev/null || echo 0)" >> results/memory_samples.csv
+              sleep 10
+            done
+          ) &
+          echo $! > /tmp/memmon.pid
+
+      - name: Load test - Token endpoint
+        id: token
+        continue-on-error: true
         run: |
+          set -a && source .env.test && set +a
           k6 run \
-            --env BASE_URL=${{ env.BASE_URL }} \
-            --env REALM=${{ env.PERF_REALM }} \
-            --env CLIENT_ID=perf-client \
-            --env CLIENT_SECRET=perf-client-secret \
-            --env VUS=50 \
-            --env DURATION=${{ github.event.inputs.test_duration || '5m' }} \
+            --env VUS=50 --env DURATION="$TEST_DURATION" \
             --out json=results/token_load.json \
             k6/scenarios/token_client_credentials.js
 
-      - name: Run load test - Password grant
+      - name: Load test - Password grant
+        id: password
+        continue-on-error: true
         run: |
+          set -a && source .env.test && set +a
           k6 run \
-            --env BASE_URL=${{ env.BASE_URL }} \
-            --env REALM=${{ env.PERF_REALM }} \
-            --env CLIENT_ID=perf-client \
-            --env CLIENT_SECRET=perf-client-secret \
-            --env TEST_USERNAME=perf-user-001 \
-            --env TEST_PASSWORD=perf-password \
-            --env VUS=30 \
-            --env DURATION=${{ github.event.inputs.test_duration || '5m' }} \
+            --env VUS=30 --env DURATION="$TEST_DURATION" \
             --out json=results/password_load.json \
             k6/scenarios/token_password.js
 
-      - name: Run load test - JWKS
+      - name: Load test - JWKS
+        id: jwks
+        continue-on-error: true
         run: |
+          set -a && source .env.test && set +a
           k6 run \
-            --env BASE_URL=${{ env.BASE_URL }} \
-            --env REALM=${{ env.PERF_REALM }} \
-            --env VUS=50 \
-            --env DURATION=${{ github.event.inputs.test_duration || '5m' }} \
+            --env VUS=50 --env DURATION="$TEST_DURATION" \
             --out json=results/jwks_load.json \
             k6/scenarios/jwks.js
 
-      - name: Run load test - Userinfo
+      - name: Load test - Userinfo
+        id: userinfo
+        continue-on-error: true
         run: |
+          set -a && source .env.test && set +a
           k6 run \
-            --env BASE_URL=${{ env.BASE_URL }} \
-            --env REALM=${{ env.PERF_REALM }} \
-            --env CLIENT_ID=perf-client \
-            --env CLIENT_SECRET=perf-client-secret \
-            --env VUS=30 \
-            --env DURATION=${{ github.event.inputs.test_duration || '5m' }} \
+            --env VUS=30 --env DURATION="$TEST_DURATION" \
             --out json=results/userinfo_load.json \
             k6/scenarios/userinfo.js
 
-      - name: Run soak test - Mixed workload
+      - name: Soak test - Mixed workload
+        id: soak
+        continue-on-error: true
         run: |
+          set -a && source .env.test && set +a
           k6 run \
-            --env BASE_URL=${{ env.BASE_URL }} \
-            --env REALM=${{ env.PERF_REALM }} \
-            --env CLIENT_ID=perf-client \
-            --env CLIENT_SECRET=perf-client-secret \
-            --env VUS=30 \
-            --env DURATION=${{ github.event.inputs.test_duration || '10m' }} \
+            --env VUS=30 --env DURATION="$SOAK_DURATION" \
             --out json=results/mixed_soak.json \
             k6/scenarios/mixed_workload.js
 
-      - name: Check for memory leaks
+      - name: Check memory growth
+        id: memory
         run: |
-          pid=$(cat /tmp/ferriskey.pid)
-          final_rss=$(ps -o rss= -p $pid | tr -d ' ')
-          baseline_rss=${{ env.BASELINE_RSS }}
+          kill "$(cat /tmp/memmon.pid)" 2>/dev/null || true
 
-          echo "Baseline memory: ${baseline_rss} KB"
-          echo "Final memory: ${final_rss} KB"
+          final_kb=$(scripts/container_memory_kb.sh ${{ matrix.service }})
+          baseline_kb=$BASELINE_KB
+          growth_pct=$(( (final_kb - baseline_kb) * 100 / baseline_kb ))
 
-          # Calculate growth percentage
-          growth_pct=$(( (final_rss - baseline_rss) * 100 / baseline_rss ))
+          echo "Baseline memory: ${baseline_kb} KiB"
+          echo "Final memory: ${final_kb} KiB"
           echo "Memory growth: ${growth_pct}%"
 
-          # Fail if memory grew more than 50% (adjust threshold as needed)
-          if [ $growth_pct -gt 50 ]; then
-            echo "::warning::Memory grew by ${growth_pct}% which exceeds 50% threshold"
-            echo "MEMORY_LEAK_WARNING=true" >> $GITHUB_ENV
-          fi
+          echo "FINAL_KB=$final_kb" >> "$GITHUB_ENV"
+          echo "GROWTH_PCT=$growth_pct" >> "$GITHUB_ENV"
 
-          # Save memory analysis
           echo "baseline_kb,final_kb,growth_pct" > results/memory_analysis.csv
-          echo "${baseline_rss},${final_rss},${growth_pct}" >> results/memory_analysis.csv
+          echo "${baseline_kb},${final_kb},${growth_pct}" >> results/memory_analysis.csv
 
-      - name: Stop monitoring and collect logs
+          if [ "$growth_pct" -gt 50 ]; then
+            echo "::warning::Memory grew by ${growth_pct}%, above the 50% threshold"
+            echo "MEMORY_LEAK_WARNING=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Server logs
         if: always()
-        run: |
-          # Stop memory monitor
-          if [ -f /tmp/memmon.pid ]; then
-            kill $(cat /tmp/memmon.pid) 2>/dev/null || true
-          fi
+        run: docker compose logs --no-color ${{ matrix.service }} > results/${{ matrix.service }}.log
 
-          # Stop FerrisKey
-          if [ -f /tmp/ferriskey.pid ]; then
-            kill $(cat /tmp/ferriskey.pid) 2>/dev/null || true
-          fi
+      - name: Stop ${{ matrix.provider }}
+        if: always()
+        run: docker compose down -v
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: nightly-test-results-${{ github.run_number }}
+          name: nightly-test-results-${{ matrix.provider }}-${{ github.run_number }}
           path: results/
           retention-days: 30
 
-      - name: Generate summary report
+      - name: Summary
         if: always()
         run: |
-          echo "## Nightly Performance Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "**FerrisKey Ref:** ${{ github.event.inputs.ferriskey_ref || 'main' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Nightly Performance (${{ matrix.provider }})"
+            echo ""
+            echo "**Date:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            echo "**FerrisKey image:** $FERRISKEY_VERSION, **Keycloak image:** $KEYCLOAK_VERSION"
+            echo ""
+            echo "### Memory"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Baseline | ${BASELINE_KB:-n/a} KiB |"
+            echo "| Final | ${FINAL_KB:-n/a} KiB |"
+            echo "| Growth | ${GROWTH_PCT:-n/a}% |"
+            if [ "${MEMORY_LEAK_WARNING:-}" = "true" ]; then
+              echo ""
+              echo ":warning: Potential memory leak: growth above 50%"
+            fi
+            echo ""
+            echo "### Scenarios"
+            echo "| Test | Status |"
+            echo "|------|--------|"
+            echo "| Token (client_credentials) | ${{ steps.token.outcome }} |"
+            echo "| Token (password) | ${{ steps.password.outcome }} |"
+            echo "| JWKS | ${{ steps.jwks.outcome }} |"
+            echo "| Userinfo | ${{ steps.userinfo.outcome }} |"
+            echo "| Mixed workload soak | ${{ steps.soak.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "### Memory Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Baseline | ${{ env.BASELINE_RSS }} KB |" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f results/memory_analysis.csv ]; then
-            tail -1 results/memory_analysis.csv | while IFS=',' read -r baseline final growth; do
-              echo "| Final | ${final} KB |" >> $GITHUB_STEP_SUMMARY
-              echo "| Growth | ${growth}% |" >> $GITHUB_STEP_SUMMARY
-            done
-          fi
-
-          if [ "${{ env.MEMORY_LEAK_WARNING }}" == "true" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo ":warning: **Warning:** Potential memory leak detected!" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "| Test | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-
-          for result in results/*.json; do
-            if [ -f "$result" ]; then
-              test_name=$(basename "$result" .json)
-              echo "| $test_name | :white_check_mark: Completed |" >> $GITHUB_STEP_SUMMARY
+          for outcome in "${{ steps.token.outcome }}" "${{ steps.password.outcome }}" \
+                         "${{ steps.jwks.outcome }}" "${{ steps.userinfo.outcome }}" \
+                         "${{ steps.soak.outcome }}"; do
+            if [ "$outcome" != "success" ]; then
+              echo "::error::At least one scenario failed (see k6 output above)"
+              exit 1
             fi
           done

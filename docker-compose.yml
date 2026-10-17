@@ -1,0 +1,102 @@
+# Local IAM backends for the performance tester.
+#
+#   docker compose --profile keycloak up -d --wait     # Keycloak on :8080
+#   docker compose --profile ferriskey up -d --wait    # FerrisKey on :3333
+#   docker compose --profile keycloak --profile ferriskey down -v
+#
+# Variables (KEYCLOAK_VERSION, FERRISKEY_VERSION, *_PORT, ADMIN_*) are read
+# from the environment or from .env next to this file.
+
+name: iam-perf
+
+x-postgres: &postgres
+  image: postgres:${POSTGRES_VERSION:-18}
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+    interval: 5s
+    timeout: 5s
+    retries: 12
+
+services:
+  keycloak-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    profiles: [keycloak]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-26.8.1}
+    command: ["start"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+      KC_LOG_LEVEL: ${KEYCLOAK_LOG_LEVEL:-warn}
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      # The image ships no curl; bash's /dev/tcp reaches the management port.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 30s
+    profiles: [keycloak]
+
+  ferriskey-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: ferriskey
+      POSTGRES_USER: ferriskey
+      POSTGRES_PASSWORD: ferriskey
+    profiles: [ferriskey]
+
+  ferriskey-migrations:
+    image: ghcr.io/ferriskey/ferriskey-api:${FERRISKEY_VERSION:-latest}
+    entrypoint: ["sqlx"]
+    command: ["migrate", "run", "--source", "/usr/local/src/ferriskey/migrations"]
+    environment:
+      DATABASE_URL: postgresql://ferriskey:ferriskey@ferriskey-db/ferriskey
+    depends_on:
+      ferriskey-db:
+        condition: service_healthy
+    restart: "no"
+    profiles: [ferriskey]
+
+  ferriskey-api:
+    image: ghcr.io/ferriskey/ferriskey-api:${FERRISKEY_VERSION:-latest}
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "3333"
+      ENV: development
+      DATABASE_HOST: ferriskey-db
+      DATABASE_NAME: ferriskey
+      DATABASE_USER: ferriskey
+      DATABASE_PASSWORD: ferriskey
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      ADMIN_EMAIL: admin@example.com
+      ALLOWED_ORIGINS: http://localhost:5555
+      WEBAPP_URL: http://localhost:5555
+      LOG_FILTER: ${FERRISKEY_LOG_FILTER:-warn}
+    ports:
+      - "${FERRISKEY_PORT:-3333}:3333"
+    depends_on:
+      ferriskey-migrations:
+        condition: service_completed_successfully
+    profiles: [ferriskey]

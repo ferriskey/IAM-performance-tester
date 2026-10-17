@@ -47,6 +47,20 @@ class IAMProvider(ABC):
         pass
 
     @abstractmethod
+    def delete_realm(self, token: str, realm_name: str) -> bool:
+        """
+        Delete a realm and all the data it contains.
+
+        Args:
+            token: Admin access token.
+            realm_name: Name of the realm to delete.
+
+        Returns:
+            True if deleted or already absent, False otherwise.
+        """
+        pass
+
+    @abstractmethod
     def create_client(self, token: str, realm: str, client_data: dict) -> str | None:
         """
         Create a new OAuth2 client.
