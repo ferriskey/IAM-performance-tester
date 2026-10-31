@@ -1,5 +1,5 @@
 // k6/lib/auth.js
-// Authentication helpers for FerrisKey performance tests
+// Authentication helpers shared by the scenarios
 
 import http from 'k6/http';
 import { config } from './config.js';
@@ -18,6 +18,7 @@ export function getClientCredentialsToken(realm, clientId, clientSecret) {
     grant_type: 'client_credentials',
     client_id: clientId,
     client_secret: clientSecret,
+    scope: 'openid',
   };
 
   const params = {
@@ -52,6 +53,7 @@ export function getPasswordToken(realm, clientId, clientSecret, username, passwo
     client_id: clientId,
     username: username,
     password: password,
+    scope: 'openid',
   };
 
   if (clientSecret) {

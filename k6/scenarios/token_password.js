@@ -49,6 +49,7 @@ export function setup() {
     client_secret: config.clientSecret,
     username: config.testUsername,
     password: config.testPassword,
+    scope: 'openid',
   }, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
@@ -74,6 +75,7 @@ export default function (data) {
     client_secret: config.clientSecret,
     username: user.username,
     password: user.password,
+    scope: 'openid',
   };
 
   const params = {

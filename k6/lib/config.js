@@ -1,5 +1,5 @@
 // k6/lib/config.js
-// Environment configuration for FerrisKey performance tests
+// Environment configuration shared by the scenarios
 
 export const config = {
   // Base URL - override with BASE_URL env var
@@ -18,7 +18,7 @@ export const config = {
 
   // Test user credentials (for password grant)
   testUsername: __ENV.TEST_USERNAME || 'perf-user-001',
-  testPassword: __ENV.TEST_PASSWORD || 'perf-password',
+  testPassword: __ENV.TEST_PASSWORD || 'Perf-User-Pass-2026!',
 
   // Endpoints
   endpoints: {

@@ -33,11 +33,6 @@ class FerrisKeyProvider(IAMProvider):
         """Get admin access token from FerrisKey using password grant."""
         print_warning("Getting admin access token...")
 
-        # Use admin client credentials if provided, otherwise fail
-        if not self.config.admin_client_id:
-            print_error("ADMIN_CLIENT_ID is required for FerrisKey authentication")
-            sys.exit(1)
-
         url = f"{self.config.base_url}/realms/{self.config.admin_realm}/protocol/openid-connect/token"
 
         data = {
@@ -95,6 +90,30 @@ class FerrisKeyProvider(IAMProvider):
 
         except requests.exceptions.RequestException as e:
             print_error(f"Failed to create realm: {e}")
+            return False
+
+    def delete_realm(self, token: str, realm_name: str) -> bool:
+        """Delete a realm and everything in it."""
+        print_warning(f"Deleting realm: {realm_name}...")
+
+        url = f"{self.config.base_url}/realms/{realm_name}"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            response = requests.delete(url, headers=headers, timeout=self.config.request_timeout)
+
+            if response.status_code in (200, 204):
+                print_success(f"Realm '{realm_name}' deleted successfully")
+                return True
+            elif response.status_code == 404:
+                print_warning(f"Realm '{realm_name}' not found (already deleted?)")
+                return True
+            else:
+                print_error(f"Failed to delete realm. HTTP {response.status_code}: {response.text}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            print_error(f"Failed to delete realm: {e}")
             return False
 
     def create_client(self, token: str, realm: str, client_data: dict) -> str | None:
@@ -169,9 +188,11 @@ class FerrisKeyProvider(IAMProvider):
                 except Exception:
                     return None
             else:
+                print_error(f"Failed to create user '{username}'. HTTP {response.status_code}: {response.text}")
                 return None
 
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            print_error(f"Failed to create user '{username}': {e}")
             return None
 
     def set_user_password(
@@ -196,23 +217,27 @@ class FerrisKeyProvider(IAMProvider):
             response = requests.put(
                 url, headers=headers, json=data, timeout=self.config.request_timeout
             )
-            return response.status_code in (200, 204)
-        except requests.exceptions.RequestException:
+            if response.status_code in (200, 204):
+                return True
+            print_error(f"Failed to set password for user {user_id}. HTTP {response.status_code}: {response.text}")
+            return False
+        except requests.exceptions.RequestException as e:
+            print_error(f"Failed to set password for user {user_id}: {e}")
             return False
 
     def get_client_secret(self, token: str, realm: str, client_uuid: str) -> str | None:
-        """Get the client secret from FerrisKey."""
-        url = f"{self.config.base_url}/realms/{realm}/clients/{client_uuid}"
+        """Reveal the secret of a confidential client (GET /clients/{uuid} only returns a masked value)."""
+        url = f"{self.config.base_url}/realms/{realm}/clients/{client_uuid}/client-secret"
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
             response = requests.get(url, headers=headers, timeout=self.config.request_timeout)
             if response.status_code == 200:
                 data = response.json()
-                # Secret is in data.secret or directly in secret
-                return data.get("data", {}).get("secret") or data.get("secret")
-        except requests.exceptions.RequestException:
-            pass
+                return data.get("client_secret") or data.get("data", {}).get("client_secret")
+            print_error(f"Failed to read client secret. HTTP {response.status_code}: {response.text}")
+        except requests.exceptions.RequestException as e:
+            print_error(f"Failed to read client secret: {e}")
         return None
 
     def create_default_client(self, token: str, realm: str) -> tuple[str | None, str | None]:

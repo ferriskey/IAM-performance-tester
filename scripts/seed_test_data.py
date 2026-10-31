@@ -69,7 +69,9 @@ REALM={config.perf_realm}
 CLIENT_ID={client_id}
 CLIENT_SECRET={client_secret}
 
-# Test user credentials
+# Test user pool (k6 picks random users from {config.user_prefix}001 to {config.user_prefix}{config.user_count:03d})
+USER_PREFIX={config.user_prefix}
+USER_COUNT={config.user_count}
 TEST_USERNAME={config.user_prefix}001
 TEST_PASSWORD={config.user_password}
 
