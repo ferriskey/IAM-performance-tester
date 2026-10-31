@@ -1,0 +1,33 @@
+# PostgreSQL for keycloak. Same spec for both systems so the database is not a variable.
+# bench.sh hibernates the database of the inactive system: the db node cannot hold both at full size.
+# CNPG creates the secret keycloak-db-app (username, password, host, uri).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keycloak-db
+  namespace: iam-bench
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak
+  storage:
+    size: 10Gi
+    storageClass: sbs-15k
+  postgresql:
+    parameters:
+      max_connections: "DB_MAX_CONNECTIONS"
+      shared_buffers: "192MB"
+      effective_cache_size: "512MB"
+      work_mem: "8MB"
+      random_page_cost: "1.1"
+  resources:
+    # FerrisKey fills its 100-connection pool: 768Mi got OOMKilled under load.
+    requests: { cpu: "1", memory: DB_MEMORY }
+    limits: { memory: DB_MEMORY }
+  affinity:
+    nodeSelector: { bench.ferriskey.rs/role: db }
+    tolerations:
+      - { key: bench.ferriskey.rs/role, operator: Equal, value: db, effect: NoSchedule }

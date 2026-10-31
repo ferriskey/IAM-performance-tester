@@ -1,0 +1,6 @@
+# CloudNativePG operator, kept off the sut and db nodes.
+nodeSelector:
+  bench.ferriskey.rs/role: loadgen
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { memory: 256Mi }

@@ -32,3 +32,6 @@ Thumbs.db
 .env
 .env.local
 .env.test
+
+# Raw k8s benchmark results (REPORT.md is kept)
+results/k8s/**/*.json

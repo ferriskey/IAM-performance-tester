@@ -1,0 +1,31 @@
+# Rendered by bench.sh: __SYSTEM__, __ADMIN_SECRET__ and __USER_COUNT__ are substituted.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-__SYSTEM__
+  namespace: iam-bench
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: bench-seed
+      restartPolicy: Never
+      nodeSelector: { bench.ferriskey.rs/role: loadgen }
+      containers:
+        - name: seed
+          image: alpine/k8s:1.31.5
+          command: [sh, /scripts/seed.sh]
+          env:
+            - { name: SYSTEM, value: __SYSTEM__ }
+            - { name: USER_COUNT, value: "__USER_COUNT__" }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: __ADMIN_SECRET__, key: password } }
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: scripts
+          configMap: { name: bench-seed-script }
