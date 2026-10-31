@@ -1,0 +1,85 @@
+# Keycloak in production mode (`start`, not `start-dev`).
+# Resources are set by bench.sh (KEYCLOAK_CPU, KEYCLOAK_CPU_LIMIT, KEYCLOAK_MEMORY).
+# Argon2id defaults (m=7168, t=5, p=1) are the same as FerrisKey, and the DB pool
+# max (100) matches FerrisKey's hardcoded pool.
+# The admin password comes from the keycloak-admin Secret created by bench.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: iam-bench
+  labels: { app: keycloak }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      nodeSelector:
+        bench.ferriskey.rs/role: sut
+      tolerations:
+        - { key: bench.ferriskey.rs/role, operator: Equal, value: sut, effect: NoSchedule }
+      containers:
+        - name: keycloak
+          image: KEYCLOAK_IMAGE
+          args: ["start"]
+          env:
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: admin }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-admin, key: password } }
+            - { name: KC_DB, value: postgres }
+            - { name: KC_DB_URL_HOST, value: keycloak-db-rw }
+            - { name: KC_DB_URL_DATABASE, value: keycloak }
+            - name: KC_DB_USERNAME
+              valueFrom: { secretKeyRef: { name: keycloak-db-app, key: username } }
+            - name: KC_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: keycloak-db-app, key: password } }
+            - { name: KC_DB_POOL_MAX_SIZE, value: "100" }
+            - { name: KC_HTTP_ENABLED, value: "true" }
+            - { name: KC_HOSTNAME_STRICT, value: "false" }
+            - { name: KC_CACHE, value: local }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            - { name: KC_METRICS_ENABLED, value: "true" }
+            - { name: KC_LOG_LEVEL, value: info }
+            - { name: JAVA_OPTS_APPEND, value: "KEYCLOAK_JAVA_OPTS" }
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          startupProbe:
+            httpGet: { path: /health/started, port: management }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health/live, port: management }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "KEYCLOAK_CPU_REQUEST", memory: KEYCLOAK_MEMORY }
+            limits: { KEYCLOAK_CPU_LIMITmemory: KEYCLOAK_MEMORY }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: iam-bench
+  labels: { app: keycloak }
+spec:
+  selector: { app: keycloak }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+    - { name: management, port: 9000, targetPort: management }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keycloak
+  namespace: iam-bench
+spec:
+  selector:
+    matchLabels: { app: keycloak }
+  endpoints:
+    - { port: management, path: /metrics, interval: 5s }

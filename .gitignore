@@ -36,3 +36,6 @@ Thumbs.db
 
 # Generated k6 configs kept per provider
 .env.test.*
+
+# Raw k8s benchmark runs (the summaries live in reports/)
+results/k8s/
