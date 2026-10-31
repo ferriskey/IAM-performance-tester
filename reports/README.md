@@ -1,7 +1,7 @@
-# Résultats de bench
+# Benchmark reports
 
-Un fichier par campagne, nommé `AAAA-MM-JJ-<sujet>.md`. Les données brutes de chaque campagne restent dans `results/k8s/`, et chaque fichier indique les passages dont il est tiré.
+One file per campaign, named `YYYY-MM-DD-<topic>.md`. The raw data of each campaign stays local in `results/k8s/`, and each report names the runs it is built from.
 
-| Date | Comparaison | Fichier |
+| Date | Comparison | File |
 |---|---|---|
-| 31 octobre 2026 | FerrisKey `main` (`ace8c1a`) contre Keycloak 26.8.1, six endpoints | [2026-10-31-ferriskey-vs-keycloak.md](2026-10-31-ferriskey-vs-keycloak.md) |
+| October 31, 2026 | FerrisKey `main` (`ace8c1a`) vs Keycloak 26.8.1, six endpoints | [2026-10-31-ferriskey-vs-keycloak.md](2026-10-31-ferriskey-vs-keycloak.md) |
