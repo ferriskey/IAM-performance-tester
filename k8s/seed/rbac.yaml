@@ -1,0 +1,26 @@
+# The seed Job writes the bench-<system> Secret read by the k6 Jobs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bench-seed
+  namespace: iam-bench
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bench-seed
+  namespace: iam-bench
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bench-seed
+  namespace: iam-bench
+subjects:
+  - { kind: ServiceAccount, name: bench-seed, namespace: iam-bench }
+roleRef:
+  { kind: Role, name: bench-seed, apiGroup: rbac.authorization.k8s.io }

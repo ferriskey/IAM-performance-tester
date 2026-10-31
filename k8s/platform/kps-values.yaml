@@ -1,0 +1,80 @@
+# Lean kube-prometheus-stack for a 3 x DEV1-M cluster.
+# Everything except node-exporter and Grafana runs on the loadgen node.
+# Prometheus accepts k6 remote-write so client and server metrics share one TSDB.
+alertmanager:
+  enabled: false
+
+defaultRules:
+  create: false
+
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeEtcd: { enabled: false }
+kubeProxy: { enabled: false }
+
+prometheusOperator:
+  nodeSelector: { bench.ferriskey.rs/role: loadgen }
+  admissionWebhooks:
+    patch:
+      nodeSelector: { bench.ferriskey.rs/role: loadgen }
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 192Mi }
+
+kube-state-metrics:
+  nodeSelector: { bench.ferriskey.rs/role: loadgen }
+  resources:
+    requests: { cpu: 20m, memory: 48Mi }
+    limits: { memory: 128Mi }
+
+prometheus-node-exporter:
+  tolerations:
+    - operator: Exists
+  resources:
+    requests: { cpu: 20m, memory: 24Mi }
+    limits: { memory: 64Mi }
+
+prometheus:
+  prometheusSpec:
+    nodeSelector: { bench.ferriskey.rs/role: loadgen }
+    scrapeInterval: 5s
+    evaluationInterval: 15s
+    retention: 7d
+    enableRemoteWriteReceiver: true
+    enableFeatures: [native-histograms]
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 200m, memory: 512Mi }
+      limits: { memory: 900Mi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: sbs-default
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: { storage: 10Gi }
+
+# Grafana sits on the db node: idle during runs, and loadgen needs the memory for k6.
+grafana:
+  nodeSelector: { bench.ferriskey.rs/role: db }
+  tolerations:
+    - { key: bench.ferriskey.rs/role, operator: Equal, value: db, effect: NoSchedule }
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { memory: 768Mi }
+  readinessProbe:
+    httpGet: { path: /api/health, port: 3000 }
+    timeoutSeconds: 10
+    failureThreshold: 6
+  # First start runs DB migrations for minutes on a small node.
+  livenessProbe:
+    httpGet: { path: /api/health, port: 3000 }
+    initialDelaySeconds: 300
+    timeoutSeconds: 30
+    failureThreshold: 10
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL

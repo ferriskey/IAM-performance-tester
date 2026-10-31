@@ -1,0 +1,39 @@
+# Rendered by bench.sh: __NAME__, __SYSTEM__, __SCENARIO__, __RATE__, __DURATION__, __WARMUP__, __SPREAD_IPS__ are substituted.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: iam-bench
+  labels: { app: bench-k6 }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app: bench-k6 }
+    spec:
+      restartPolicy: Never
+      nodeSelector: { bench.ferriskey.rs/role: loadgen }
+      containers:
+        - name: k6
+          image: grafana/k6:1.8.2
+          args: [run, --quiet, --no-color, /scripts/bench.js]
+          envFrom:
+            - secretRef: { name: bench-__SYSTEM__ }
+          env:
+            - { name: SYSTEM, value: __SYSTEM__ }
+            - { name: SCENARIO, value: __SCENARIO__ }
+            - { name: RATE, value: "__RATE__" }
+            - { name: DURATION, value: "__DURATION__" }
+            - { name: WARMUP, value: "__WARMUP__" }
+            - { name: MAX_VUS, value: "300" }
+            - { name: SPREAD_IPS, value: "__SPREAD_IPS__" }
+            - { name: PRE_VUS, value: "__PRE_VUS__" }
+          resources:
+            requests: { cpu: "1", memory: 384Mi }
+            limits: { memory: 768Mi }
+          volumeMounts:
+            - { name: scripts, mountPath: /scripts }
+      volumes:
+        - name: scripts
+          configMap: { name: bench-k6-script }
